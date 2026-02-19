@@ -1,3 +1,7 @@
+<p align="center">
+  <img src=".images/banner.png" alt="agyExtensions banner">
+</p>
+
 # agyExtensions
 
 A tiny, standalone Python tool + an hourly GitHub Action that:
@@ -75,7 +79,7 @@ matrix:
 In the workflow, edit:
 
 ```yaml
-ENGINE_RANGE: ">=1.0.0"
+ENGINE_RANGE: '>=1.0.0'
 ```
 
 ## Removal / recovery
