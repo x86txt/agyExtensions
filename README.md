@@ -4,88 +4,91 @@
 
 # agyExtensions
 
-A tiny, standalone Python tool + an hourly GitHub Action that:
+Pre-patched VS Code extensions that **just work** in [Antigravity](https://github.com/nicepkg/antigravity) — no manual patching required.
 
-- fetches the latest VSIX for a VS Code Marketplace extension
-- patches `extension/package.json -> engines.vscode` to a broader semver range (default: `>=1.0.0`)
-- republishes the patched artifact as a GitHub Release **only when upstream version changes**
-
-This is intended for strict VS Code forks (e.g. Antigravity) that refuse to enable extensions due to engine gating.
+Antigravity (and other strict VS Code forks) block Marketplace extensions when the
+`engines.vscode` range doesn't match the fork's version string. This project
+automatically patches that range and publishes ready-to-install VSIX files as
+GitHub Releases every hour.
 
 > [!WARNING]
-> This may break your Antigravity install or destabilize your editor.
-> You are bypassing compatibility checks that exist for a reason.
-> Proceed with caution, and be ready to remove the extension if the extension host starts crashing or behaving oddly.
+> Installing patched extensions **bypasses compatibility checks** that exist for a reason.
+> If an extension uses VS Code APIs not present in your fork, it may crash or behave
+> unexpectedly. Be ready to uninstall and restart if something goes wrong.
 
-## What gets released
+---
 
-Each new upstream extension version produces a GitHub Release that includes:
+## Release Notes
 
-- the **original** upstream VSIX
-- the **forced** VSIX (patched `engines.vscode` range)
-- `meta.json` containing:
-  - extension id + upstream version
-  - patched `engines.vscode` range
-  - SHA256 checksums for both VSIX files
-  - build timestamp (UTC)
+Each release includes auto-generated notes with:
 
-## Local usage
+- The upstream extension name and version
+- The exact `engines.vscode` range applied
+- SHA-256 checksums for both the original and patched VSIX files
+- A UTC build timestamp
 
-Patch and output a forced VSIX:
+Check the [Releases](../../releases) page for the full history.
+
+---
+
+## Installation
+
+### 1. Download the patched VSIX
+
+1. Go to the [**Releases**](../../releases) page
+2. Find the extension you need (e.g. `github.vscode-pull-request-github`)
+3. Download the **`.forced.vsix`** file from the release assets
+
+### 2. Install in Antigravity
+
+**Option A — GUI**
+
+1. Open Antigravity
+2. Go to the **Extensions** sidebar (`Ctrl+Shift+X` / `⇧⌘X`)
+3. Click the **`···`** menu (top-right of the Extensions panel)
+4. Select **Install from VSIX…**
+5. Choose the downloaded `.forced.vsix` file
+
+**Option B — Command line**
 
 ```bash
-python3 force_install_vsix.py github.vscode-pull-request-github \
-  --engine ">=1.0.0" \
-  --out-dir dist \
-  --notes \
-  --meta-json dist/meta.json
+agy --install-extension path/to/extension.forced.vsix
 ```
 
-Optionally attempt install via Antigravity CLI:
+### 3. Restart
+
+Fully restart Antigravity to ensure the extension host reloads.
+
+---
+
+## Available Extensions
+
+| Extension            | Marketplace ID                      |
+| -------------------- | ----------------------------------- |
+| GitHub Pull Requests | `github.vscode-pull-request-github` |
+
+> [!TIP]
+> Want another extension added? [Open an issue](../../issues/new) with the
+> Marketplace ID (e.g. `publisher.extension-name`).
+
+---
+
+## Removal / Recovery
+
+If an extension causes problems:
+
+1. Open the **Extensions** sidebar
+2. Find and **Uninstall** the extension
+3. Fully restart Antigravity
+
+Or from the command line:
 
 ```bash
-python3 force_install_vsix.py github.vscode-pull-request-github \
-  --engine ">=1.0.0" \
-  --install \
-  --agy agy
+agy --uninstall-extension publisher.extension-name
 ```
 
-## GitHub Action (hourly)
+---
 
-The workflow runs on a cron schedule:
+## License
 
-- `0 * * * *` (hourly, UTC)
-
-It will create a release only if a tag named:
-
-```
-<publisher.extension>-<upstreamVersion>
-```
-
-does not already exist.
-
-### Track more extensions
-
-Edit `.github/workflows/hourly-force-vsix.yml` and add entries under:
-
-```yaml
-matrix:
-  extension_id:
-    - github.vscode-pull-request-github
-```
-
-### Change the engine range
-
-In the workflow, edit:
-
-```yaml
-ENGINE_RANGE: '>=1.0.0'
-```
-
-## Removal / recovery
-
-If the extension host is unhappy:
-
-- disable/uninstall from the Extensions UI, or
-- remove the extension from Antigravity’s extensions directory (location varies by build)
-- restart the editor completely
+[MIT](LICENSE)

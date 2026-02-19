@@ -3,35 +3,38 @@ name: Hourly VSIX engine-patch + release
 on:
   schedule:
     # Every hour, on the hour (UTC)
-    - cron: "0 * * * *"
+    - cron: '0 * * * *'
   workflow_dispatch: {}
 
 permissions:
   contents: write
 
-concurrency:
-  group: agyExtensions-${{ matrix.extension_id }}
-  cancel-in-progress: false
-
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
+
+    concurrency:
+      group: agyExtensions-${{ matrix.extension_id }}
+      cancel-in-progress: false
+
     strategy:
       matrix:
         extension_id:
           - github.vscode-pull-request-github
 
     env:
-      ENGINE_RANGE: ">=1.0.0"
+      ENGINE_RANGE: '>=1.0.0'
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.11'
 
       - name: Build forced VSIX + metadata
         run: |
@@ -49,39 +52,62 @@ jobs:
           meta = json.load(open("dist/meta.json"))
           ext = meta["extension_id"]
           ver = meta["version"]
-          tag = f"{ext}-{ver}"
-          notes = f"dist/{ext}-{ver}.RELEASE_NOTES.md"
-          forced = f"dist/{ext}-{ver}.forced.vsix"
-          original = f"dist/{ext}-{ver}.vsix"
           print(f"extension_id={ext}")
           print(f"version={ver}")
-          print(f"tag={tag}")
-          print(f"notes_file={notes}")
-          print(f"forced_vsix={forced}")
-          print(f"original_vsix={original}")
+          print(f"notes_file=dist/{ext}-{ver}.RELEASE_NOTES.md")
+          print(f"forced_vsix=dist/{ext}-{ver}.forced.vsix")
+          print(f"original_vsix=dist/{ext}-{ver}.vsix")
           PY
+
+      - name: Determine semver release tag
+        id: semver
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          EXT="${{ steps.meta.outputs.extension_id }}"
+          UPSTREAM_VER="${{ steps.meta.outputs.version }}"
+
+          # Find the latest release tag for this extension to get current patch
+          LATEST_TAG=$(gh release list --limit 100 --json tagName -q \
+            "[.[] | select(.tagName | startswith(\"${EXT}/v${UPSTREAM_VER}.\"))] | sort_by(.tagName) | last | .tagName" 2>/dev/null || echo "")
+
+          if [ -z "$LATEST_TAG" ] || [ "$LATEST_TAG" = "null" ]; then
+            # No release for this upstream version yet — start at patch 0
+            PATCH=0
+          else
+            # Extract current patch and bump
+            CURRENT_PATCH=$(echo "$LATEST_TAG" | sed "s|${EXT}/v${UPSTREAM_VER}\.||")
+            PATCH=$((CURRENT_PATCH + 1))
+          fi
+
+          TAG="${EXT}/v${UPSTREAM_VER}.${PATCH}"
+          TITLE="${EXT} v${UPSTREAM_VER}.${PATCH}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "title=${TITLE}" >> "$GITHUB_OUTPUT"
+          echo "Resolved release tag: ${TAG}"
 
       - name: Check if release exists
         id: exists
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if gh release view "${{ steps.meta.outputs.tag }}" >/dev/null 2>&1; then
+          if gh release view "${{ steps.semver.outputs.tag }}" >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "Release already exists: ${{ steps.meta.outputs.tag }}"
+            echo "Release already exists: ${{ steps.semver.outputs.tag }}"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "No release yet for: ${{ steps.meta.outputs.tag }}"
+            echo "No release yet for: ${{ steps.semver.outputs.tag }}"
           fi
 
-      - name: Create GitHub release (only on new upstream version)
+      - name: Create GitHub release
         if: steps.exists.outputs.exists != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ steps.meta.outputs.tag }}" \
-            --title "${{ steps.meta.outputs.extension_id }} ${{ steps.meta.outputs.version }}" \
+          gh release create "${{ steps.semver.outputs.tag }}" \
+            --title "${{ steps.semver.outputs.title }}" \
             --notes-file "${{ steps.meta.outputs.notes_file }}" \
+            --latest \
             "${{ steps.meta.outputs.forced_vsix }}" \
             "${{ steps.meta.outputs.original_vsix }}" \
             dist/meta.json
