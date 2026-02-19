@@ -1,0 +1,87 @@
+name: Hourly VSIX engine-patch + release
+
+on:
+  schedule:
+    # Every hour, on the hour (UTC)
+    - cron: "0 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: agyExtensions-${{ matrix.extension_id }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        extension_id:
+          - github.vscode-pull-request-github
+
+    env:
+      ENGINE_RANGE: ">=1.0.0"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build forced VSIX + metadata
+        run: |
+          python3 force_install_vsix.py "${{ matrix.extension_id }}" \
+            --engine "${ENGINE_RANGE}" \
+            --out-dir dist \
+            --notes \
+            --meta-json dist/meta.json
+
+      - name: Read metadata
+        id: meta
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          meta = json.load(open("dist/meta.json"))
+          ext = meta["extension_id"]
+          ver = meta["version"]
+          tag = f"{ext}-{ver}"
+          notes = f"dist/{ext}-{ver}.RELEASE_NOTES.md"
+          forced = f"dist/{ext}-{ver}.forced.vsix"
+          original = f"dist/{ext}-{ver}.vsix"
+          print(f"extension_id={ext}")
+          print(f"version={ver}")
+          print(f"tag={tag}")
+          print(f"notes_file={notes}")
+          print(f"forced_vsix={forced}")
+          print(f"original_vsix={original}")
+          PY
+
+      - name: Check if release exists
+        id: exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "${{ steps.meta.outputs.tag }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Release already exists: ${{ steps.meta.outputs.tag }}"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "No release yet for: ${{ steps.meta.outputs.tag }}"
+          fi
+
+      - name: Create GitHub release (only on new upstream version)
+        if: steps.exists.outputs.exists != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.meta.outputs.tag }}" \
+            --title "${{ steps.meta.outputs.extension_id }} ${{ steps.meta.outputs.version }}" \
+            --notes-file "${{ steps.meta.outputs.notes_file }}" \
+            "${{ steps.meta.outputs.forced_vsix }}" \
+            "${{ steps.meta.outputs.original_vsix }}" \
+            dist/meta.json
